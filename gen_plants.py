@@ -1,35 +1,51 @@
 """
-LowPolyPlants generator: 4 low-poly plants and 3 dry grass clumps as OBJ + MTL. Python 3, no dependencies.
+LowPolyPlants generator: 4 low-poly plants, 4 dry grass clumps and 3 rock clutter clumps as OBJ + MTL.
+Python 3, no dependencies.
 
-    python gen_plants.py [out_dir]
+    python gen_plants.py [out_dir]             OBJ for Blender / Godot / Unity
+    python gen_plants.py out_dir --unreal      OBJ for Unreal's importer (V flipped), see tools/build_unreal_pack.py
 
-Z up, centimetres, pivot on the ground. Leaves, pads and blades carry UVs for T_PlantLeaf (U across a leaf, 0.5 on
-the midline; V from base to tip). Leaves and blades are single-sided strips: render with a TWO-SIDED material.
+Z up, centimetres, pivot on the ground. Leaves, pads and blades carry UVs for their texture (U across a leaf, 0.5 on
+the midline; V from base to tip); foliage clusters and stones have UVs scaled to the surface so their texture
+tiles evenly. Leaves and blades are single-sided strips: render with a TWO-SIDED material.
 
 Plants:  SM_Plant_Agave        blue-grey rosette of thick pointed leaves, a few dead ones at the base
-         SM_Plant_PricklyPear  Opuntia: flat oval pads growing off each other, red fruit on the rims
+         SM_Plant_PricklyPear  bunny-ear Opuntia: flat oval pads growing off each other in fans
          SM_Plant_Oleander     dense dark-green flowering shrub, pink flowers
-         SM_Plant_Saltbush     low grey-green mound
+         SM_Plant_Saltbush     low grey-green shrub: woody stems and small leaf clusters
 Grasses: SM_Grass_Tuft         clump of short dry tufts (~2.5 m across)
          SM_Grass_Seed         taller tufts with seed heads
          SM_Grass_Dead         dead brown clumps splayed flat
+         SM_Grass_Tussock      bushy pale straw tussocks, roadside grass (~1.4 m patch)
+Rocks:   SM_Rocks_Scatter      loose stones and pebbles (~1.8 m)
+         SM_Rocks_Rubble       broken concrete and block chunks with stones (~1.4 m)
+         SM_Rocks_Litter       stones with scraps of paper and plastic (~1.8 m)
 
-Slots: Agave, AgaveDead, Pad, Fruit, Leaf, LeafDark, Flower, Stem, Salt, Straw, StrawPale, Olive, Seed, DeadGrass.
+Slots: see COLOURS (linear RGB, as used in Unreal).
 """
 import math
 import os
 import random
 import sys
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "OBJ")
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+OUT = ARGS[0] if ARGS else os.path.join(os.path.dirname(os.path.abspath(__file__)), "OBJ")
+# --unreal: negate V for Unreal's OBJ importer (it flips V), so leaf tips stay at V = 1 in the engine
+FLIP_V = "--unreal" in sys.argv
 
 # linear RGB slot colours (as used in Unreal); the MTL gets them in sRGB
-COLOURS = {"Agave": (0.10, 0.16, 0.12), "AgaveDead": (0.20, 0.13, 0.06), "Pad": (0.07, 0.15, 0.04),
+COLOURS = {"Agave": (0.10, 0.16, 0.12), "AgaveDead": (0.20, 0.13, 0.06), "Pad": (0.10, 0.24, 0.05),
            "Fruit": (0.30, 0.03, 0.05), "Leaf": (0.04, 0.10, 0.03), "LeafDark": (0.025, 0.07, 0.02),
-           "Flower": (0.55, 0.12, 0.22), "Stem": (0.12, 0.09, 0.05), "Salt": (0.13, 0.15, 0.10),
+           "Flower": (0.55, 0.12, 0.22), "Stem": (0.12, 0.09, 0.05), "Salt": (0.11, 0.15, 0.08),
            "Straw": (0.20, 0.16, 0.06), "StrawPale": (0.30, 0.25, 0.12), "Olive": (0.11, 0.12, 0.04),
-           "Seed": (0.26, 0.21, 0.10), "DeadGrass": (0.12, 0.07, 0.03)}
-UNTEXTURED = ("Flower", "Fruit")
+           "Seed": (0.26, 0.21, 0.10), "DeadGrass": (0.12, 0.07, 0.03),
+           "Tussock": (0.30, 0.24, 0.12), "TussockPale": (0.42, 0.35, 0.20),
+           "Stone": (0.16, 0.13, 0.10), "StoneLight": (0.24, 0.20, 0.15), "StoneDark": (0.09, 0.075, 0.06),
+           "Concrete": (0.22, 0.21, 0.19), "Litter": (0.50, 0.49, 0.46), "LitterBlue": (0.08, 0.18, 0.36)}
+UNTEXTURED = ("Flower", "Fruit", "Litter", "LitterBlue")
+# slots with their own texture (diffuse map in the MTL); everything else textured gets T_PlantLeaf
+SLOT_TEX = {"Pad": "T_CactusPad", "Leaf": "T_Foliage", "LeafDark": "T_Foliage", "Salt": "T_Foliage",
+            "Stone": "T_Stone", "StoneLight": "T_Stone", "StoneDark": "T_Stone", "Concrete": "T_Stone"}
 
 
 def srgb(c):
@@ -68,11 +84,12 @@ class Mesh:
     def write(self, path, comment=""):
         base = os.path.splitext(os.path.basename(path))[0]
         with open(path, "w") as f:
-            f.write("# LowPolyPlants - %s (cm, Z up)\nmtllib %s.mtl\no %s\n" % (comment, base, base))
+            f.write("# LowPolyPlants - %s (cm, Z up)\n" % comment)
+            f.write(("o %s\n" % base) if FLIP_V else ("mtllib %s.mtl\no %s\n" % (base, base)))   # Unreal: no MTL, or the importer makes materials
             for p in self.v:
                 f.write("v %.2f %.2f %.2f\n" % p)
             for t in self.vt:
-                f.write("vt %.4f %.4f\n" % t)
+                f.write("vt %.4f %.4f\n" % ((t[0], -t[1]) if FLIP_V else t))
             for n in self.vn:
                 f.write("vn %.4f %.4f %.4f\n" % n)
             for slot in COLOURS:
@@ -80,13 +97,15 @@ class Mesh:
                     f.write("usemtl %s\n" % slot)
                     for face in self.faces[slot]:
                         f.write("f " + " ".join("%d/%d/%d" % c for c in face) + "\n")
+        if FLIP_V:
+            return
         with open(os.path.join(os.path.dirname(path), base + ".mtl"), "w") as f:
             for slot in COLOURS:
                 if slot in self.faces:
                     r, g, b = (srgb(c) for c in COLOURS[slot])
                     f.write("newmtl %s\nKd %.4f %.4f %.4f\nKs 0 0 0\nd 1\nillum 1\n" % (slot, r, g, b))
                     if slot not in UNTEXTURED:
-                        f.write("map_Kd T_PlantLeaf_Surface.png\n")
+                        f.write("map_Kd %s_Surface.png\n" % SLOT_TEX.get(slot, "T_PlantLeaf"))
                     f.write("\n")
 
 
@@ -156,8 +175,9 @@ def blade(m, slot, base, az, elev, length, width, droop, segs=3, fold=0.0, taper
     return pts[-1]
 
 
-def blob(m, slot, c, r, rng, squash=0.8, jitter=0.18):
-    """Faceted foliage lump: an octahedron split once (32 faces), jittered."""
+def blob(m, slot, c, r, rng, squash=0.8, jitter=0.18, tile=None, split=True):
+    """Faceted foliage lump: an octahedron split once (32 faces), jittered. With tile (cm), UVs are scaled so the
+    texture repeats every `tile` cm of surface, a whole number of times round the lump (no visible seam)."""
     V = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
     F = [(0, 2, 4), (2, 1, 4), (1, 3, 4), (3, 0, 4), (2, 0, 5), (1, 2, 5), (3, 1, 5), (0, 3, 5)]
     cache = {}
@@ -170,21 +190,26 @@ def blob(m, slot, c, r, rng, squash=0.8, jitter=0.18):
             cache[k] = len(V) - 1
         return cache[k]
 
-    F2 = []
-    for a, b, cc in F:
+    F2 = [] if split else list(F)
+    for a, b, cc in (F if split else ()):
         ab, bc, ca = mid(a, b), mid(b, cc), mid(cc, a)
         F2 += [(a, ab, ca), (ab, b, bc), (ca, bc, cc), (ab, bc, ca)]
     P = [add(c, (v[0] * r * (1 + rng.uniform(-jitter, jitter)), v[1] * r * (1 + rng.uniform(-jitter, jitter)),
                  v[2] * r * squash * (1 + rng.uniform(-jitter, jitter)))) for v in V]
     def uv(i):
         v = V[i]
-        return (0.5 + math.atan2(v[1], v[0]) / (2 * math.pi), 0.5 + 0.5 * v[2])
+        a = 0.5 + math.atan2(v[1], v[0]) / (2 * math.pi)
+        if tile is None:
+            return (a, 0.5 + 0.5 * v[2])
+        tu = max(1, round(2 * math.pi * r / tile))
+        return (a * tu, v[2] * r * squash / tile)
     for a, b, cc in F2:
         uva, uvb, uvc = uv(a), uv(b), uv(cc)
         # keep a face from wrapping the long way round the seam
         us = [uva[0], uvb[0], uvc[0]]
-        if max(us) - min(us) > 0.5:
-            uva, uvb, uvc = [((x + 1) if x < 0.5 else x, y) for x, y in (uva, uvb, uvc)]
+        span = 1 if tile is None else max(1, round(2 * math.pi * r / tile))
+        if max(us) - min(us) > 0.5 * span:
+            uva, uvb, uvc = [((x + span) if x < 0.5 * span else x, y) for x, y in (uva, uvb, uvc)]
         uvface(m, slot, [P[a], P[b], P[cc]], [uva, uvb, uvc])
     return P
 
@@ -209,62 +234,84 @@ def agave(seed=31):
     return m
 
 
-def opuntia_pad(m, c, axis, side, length, width, thick=4.0, sides=8):
-    """Flat oval pad centred at c, long axis `axis`, broad face across `side` (unit vectors)."""
+def opuntia_pad(m, c, axis, side, length, width, thick=8.0, sides=12):
+    """Plump obovate pad (Opuntia): wider towards its top, rounded, centred at c; long axis `axis`, broad face across
+    `side`. A rim ring, an inner ring and a domed centre on each face. UVs are planar across the face
+    (U across, V along the pad, 0.5 = centre) for the areole texture."""
     nrm = norm(cross(axis, side))
-    ring = [add(add(c, axis, math.cos(2 * math.pi * k / sides) * length / 2), side, math.sin(2 * math.pi * k / sides) * width / 2)
-            for k in range(sides)]
-    front = [add(p, nrm, thick / 2) for p in ring]
-    back = [add(p, nrm, -thick / 2) for p in ring]
-    cf, cb = add(c, nrm, thick * 0.9), add(c, nrm, -thick * 0.9)
-    uv = [(0.5 + 0.48 * math.sin(2 * math.pi * k / sides), 0.5 + 0.48 * math.cos(2 * math.pi * k / sides)) for k in range(sides)]
+    def ring(scale):
+        pts, uvs = [], []
+        for k in range(sides):
+            a = 2 * math.pi * k / sides
+            ca, sa = math.cos(a), math.sin(a)
+            f = (1 + 0.22 * ca) * (1 - 0.18 * max(0.0, -ca))       # broad top, narrower base
+            pts.append(add(add(c, axis, ca * length / 2 * scale), side, sa * width / 2 * f * scale))
+            uvs.append((0.5 + 0.48 * sa * f * scale, 0.5 + 0.48 * ca * scale))
+        return pts, uvs
+    rim, ruv = ring(1.0)
+    inner, iuv = ring(0.58)
+    top = add(c, axis, length * 0.06)
+    for s_ in (1, -1):
+        r_ = [add(p, nrm, s_ * thick * 0.35) for p in rim]
+        i_ = [add(p, nrm, s_ * thick * 0.95) for p in inner]
+        cc = add(top, nrm, s_ * thick * 1.25)
+        for k in range(sides):
+            k1 = (k + 1) % sides
+            if s_ > 0:
+                uvface(m, "Pad", [r_[k], r_[k1], i_[k1], i_[k]], [ruv[k], ruv[k1], iuv[k1], iuv[k]])
+                uvface(m, "Pad", [i_[k], i_[k1], cc], [iuv[k], iuv[k1], (0.5, 0.53)])
+            else:
+                uvface(m, "Pad", [r_[k1], r_[k], i_[k], i_[k1]], [ruv[k1], ruv[k], iuv[k], iuv[k1]])
+                uvface(m, "Pad", [i_[k1], i_[k], cc], [iuv[k1], iuv[k], (0.5, 0.53)])
+    front = [add(p, nrm, thick * 0.35) for p in rim]
+    back = [add(p, nrm, -thick * 0.35) for p in rim]
     for k in range(sides):
         k1 = (k + 1) % sides
-        uvface(m, "Pad", [front[k], front[k1], cf], [uv[k], uv[k1], (0.5, 0.5)])
-        uvface(m, "Pad", [back[k1], back[k], cb], [uv[k1], uv[k], (0.5, 0.5)])
-        uvface(m, "Pad", [back[k], back[k1], front[k1], front[k]], [uv[k], uv[k1], uv[k1], uv[k]])
-    return ring
+        uvface(m, "Pad", [back[k], back[k1], front[k1], front[k]], [ruv[k], ruv[k1], ruv[k1], ruv[k]])
+    return rim
+
+
+def rotate(v, axis, ang):
+    """Rodrigues rotation of v about a unit axis."""
+    c_, s_ = math.cos(ang), math.sin(ang)
+    k = axis
+    kxv = cross(k, v)
+    kdv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2]
+    return tuple(v[i] * c_ + kxv[i] * s_ + k[i] * kdv * (1 - c_) for i in range(3))
 
 
 def prickly_pear(seed=32):
+    """Bunny-ear style Opuntia: three tall pads from the ground, each sprouting one or two more off its top, fanning
+    out mostly in the parent's plane - upright and narrow like a real clump, about 1.2 m tall."""
     rng = random.Random(seed)
     m = Mesh()
-    # pads: start with a few on the ground, each grows 1-3 more off its upper rim, leaning outwards
-    pads = []
     stack = []
     for k in range(3):
-        az = 2 * math.pi * k / 3 + rng.uniform(-0.4, 0.4)
-        stack.append(((math.cos(az) * 12, math.sin(az) * 12, 0.0), norm((math.cos(az) * 0.35, math.sin(az) * 0.35, 1.0)), 0))
+        az = 2 * math.pi * k / 3 + rng.uniform(-0.3, 0.3)
+        lean = rng.uniform(0.08, 0.3)
+        axis = norm((math.cos(az) * math.sin(lean), math.sin(az) * math.sin(lean), math.cos(lean)))
+        side = norm(cross(axis, (math.cos(az + 1.57 + rng.uniform(-0.4, 0.4)), math.sin(az + 1.57), 0.0)))
+        side = norm(cross(side, axis))
+        stack.append(((math.cos(az) * 14, math.sin(az) * 14, -4.0), axis, side, 0))
     count = 0
-    while stack and count < 22:
-        base, up, depth = stack.pop(0)
-        L = rng.uniform(34, 44) * (1 - 0.06 * depth)
-        W = L * rng.uniform(0.62, 0.75)
-        turn = rng.uniform(0, 2 * math.pi)
-        tilt = rng.uniform(0.15, 0.6)
-        axis = norm((up[0] + math.sin(tilt) * math.cos(turn), up[1] + math.sin(tilt) * math.sin(turn), max(up[2], 0.35)))
-        side = norm(cross(axis, (math.cos(turn + 1.3), math.sin(turn + 1.3), 0.0)))
-        c = add(base, axis, L / 2 - 3)
+    while stack and count < 13:
+        base, axis, side, depth = stack.pop(0)
+        L = rng.uniform(46, 58) * (1 - 0.12 * depth)
+        W = L * rng.uniform(0.46, 0.54)
+        c = add(base, axis, L / 2 - 4)
         opuntia_pad(m, c, axis, side, L, W)
-        pads.append((c, axis, side, L, W))
         count += 1
-        if depth < 3:
-            for k in range(rng.choice([1, 2, 2, 3]) if depth < 2 else rng.choice([0, 1, 1])):
-                a = rng.uniform(-1.1, 1.1)
-                rim = add(add(c, axis, math.cos(a) * L / 2 * 0.92), side, math.sin(a) * W / 2 * 0.92)
-                nxt = norm(add(axis, side, math.sin(a) * 1.4))
-                stack.append((rim, nxt, depth + 1))
-    # fruit on the top rims of the outer pads
-    for c, axis, side, L, W in pads[-7:]:
-        for k in range(rng.choice([2, 3, 4])):
-            a = rng.uniform(-0.6, 0.6)
-            p = add(add(c, axis, math.cos(a) * L / 2), side, math.sin(a) * W / 2)
-            r = 3.2
-            P = [add(p, (r, 0, 0)), add(p, (0, r, 0)), add(p, (-r, 0, 0)), add(p, (0, -r, 0))]
-            top, bot = add(p, axis, r * 1.6), add(p, axis, -r * 0.6)
-            for i in range(4):
-                tri(m, "Fruit", P[i], P[(i + 1) % 4], top)
-                tri(m, "Fruit", P[(i + 1) % 4], P[i], bot)
+        if depth < 2:
+            for k in range(2 if depth == 0 else rng.choice([0, 1, 1, 1])):
+                a = (rng.uniform(0.25, 0.75) if k == 0 else rng.uniform(-0.75, -0.25)) if depth == 0 else rng.uniform(-0.65, 0.65)   # where on the top rim it buds (both shoulders on a base pad)
+                rim = add(add(c, axis, math.cos(a) * L / 2 * 0.9), side, math.sin(a) * W / 2 * 1.1 * 0.9)
+                fan = math.copysign(rng.uniform(0.35, 0.8), a if abs(a) > 0.05 else rng.uniform(-1, 1))
+                nrm = norm(cross(axis, side))
+                nax = rotate(axis, nrm, -fan)                        # fan out in the parent's plane
+                if nax[2] < 0.45:                                    # keep it growing upwards
+                    nax = norm((nax[0], nax[1], 0.45))
+                nside = norm(cross(cross(nax, rotate(side, nax, rng.uniform(-0.35, 0.35))), nax))
+                stack.append((rim, nax, nside, depth + 1))
     return m
 
 
@@ -282,7 +329,7 @@ def oleander(seed=33):
         z = rng.uniform(45, 130) - rad * 0.4               # lower towards the edge: a mound from the ground up
         c = (math.cos(az) * rad, math.sin(az) * rad, z)
         r = rng.uniform(36, 50)
-        P = blob(m, "Leaf" if k % 3 else "LeafDark", c, r, rng, squash=0.9)
+        P = blob(m, "Leaf" if k % 3 else "LeafDark", c, r, rng, squash=0.9, tile=200)
         lumps.append((c, r, P))
     for c, r, P in lumps:
         for i in range(12):
@@ -303,17 +350,27 @@ def oleander(seed=33):
 
 
 def saltbush(seed=34):
+    """Low dry shrub (Atriplex): a woody base of forking twigs carrying lots of small silvery leaf clusters in a loose
+    dome with gaps - reads as a bush rather than a boulder. About 1.1 m across, 0.6 m tall."""
     rng = random.Random(seed)
     m = Mesh()
-    for k in range(4):
-        az = rng.uniform(0, 2 * math.pi)
-        rad = 0 if k == 0 else rng.uniform(20, 35)
-        c = (math.cos(az) * rad, math.sin(az) * rad, rng.uniform(22, 32))
-        blob(m, "Salt", c, rng.uniform(30, 40), rng, squash=0.7, jitter=0.25)
-    for k in range(10):                                              # dry twigs poking out
-        az = rng.uniform(0, 2 * math.pi)
-        blade(m, "Stem", (math.cos(az) * 25, math.sin(az) * 25, 25), az, math.radians(rng.uniform(15, 50)), rng.uniform(25, 40),
-              1.0, 0, segs=1, taper=0.0)
+    tips = []
+    for k in range(7):                                               # main stems fanning out from the root crown
+        az = 2 * math.pi * k / 7 + rng.uniform(-0.3, 0.3)
+        tip = blade(m, "Stem", (0, 0, 0), az, math.radians(rng.uniform(30, 55)), rng.uniform(32, 42), 1.6, 3, segs=2, taper=0.6)
+        tips.append((tip, az))
+        for j in range(2):                                           # forks
+            a2 = az + rng.uniform(-0.6, 0.6)
+            t2 = blade(m, "Stem", tip, a2, math.radians(rng.uniform(15, 60)), rng.uniform(12, 20), 1.0, 2, segs=1, taper=0.0)
+            tips.append((t2, a2))
+    golden = math.pi * (3 - math.sqrt(5))
+    for i in range(14):                                              # leaf clusters on a loose dome
+        t = (i + 0.5) / 14
+        el = math.asin(t * 0.95)                                    # spread over the dome
+        az = i * golden + rng.uniform(-0.2, 0.2)
+        R, Hd = 45.0, 38.0
+        c = (math.cos(az) * math.cos(el) * R, math.sin(az) * math.cos(el) * R, 14 + math.sin(el) * Hd + rng.uniform(-4, 4))
+        blob(m, "Salt", c, rng.uniform(11, 16), rng, squash=0.75, jitter=0.3, tile=60)
     return m
 
 
@@ -377,9 +434,85 @@ def grass_dead(seed=43):
     return m
 
 
+def tussock(rng, m, at, h, slots, n=60):
+    """One bushy tussock: a dense fountain of fine blades from a ~25 cm crown, arching out and over."""
+    for i in range(n):
+        az = rng.uniform(0, 2 * math.pi)
+        r = 12 * math.sqrt(rng.uniform(0, 1))
+        base = (at[0] + math.cos(az) * r, at[1] + math.sin(az) * r, 0.0)
+        out = r / 12.0                                               # crown edge -> leans out more
+        e = math.radians(rng.uniform(55, 85) - 25 * out)
+        L = h * rng.uniform(0.6, 1.1)
+        blade(m, rng.choice(slots), base, az + rng.uniform(-0.25, 0.25), e, L, rng.uniform(1.4, 2.0),
+              L * rng.uniform(0.25, 0.6) * (0.6 + out), segs=2, taper=0.9)
+
+
+def grass_tussock(seed=44):
+    """Tufty dry roadside grass: 4-5 bushy pale straw tussocks 40-70 cm tall in a ~1.4 m patch."""
+    rng = random.Random(seed)
+    m = Mesh()
+    for i, at in enumerate(clump_spots(rng, 5, 60)):
+        tussock(rng, m, at, rng.uniform(40, 70), ["Tussock", "Tussock", "TussockPale", "StrawPale"])
+    return m
+
+
+def stones(rng, m, n, rmin, rmax, radius, slots=("Stone", "Stone", "StoneLight", "StoneDark")):
+    """Half-buried faceted stones scattered over a disc."""
+    for _ in range(n):
+        a, d = rng.uniform(0, 2 * math.pi), radius * math.sqrt(rng.uniform(0, 1))
+        r = rng.uniform(rmin, rmax)
+        sq = rng.uniform(0.45, 0.75)
+        blob(m, rng.choice(slots), (math.cos(a) * d, math.sin(a) * d, r * sq * 0.2), r, rng, squash=sq * 0.8,
+             jitter=0.25, tile=40, split=r > 5)
+
+
+def flake(rng, m, slot, at, size):
+    """Flat bit of litter (paper / plastic) lying on the ground, slightly crumpled."""
+    a = rng.uniform(0, math.pi)
+    c, s_ = math.cos(a), math.sin(a)
+    w, l = size * rng.uniform(0.5, 1.0), size
+    pts = [(-l, -w), (l, -w * 0.8), (l * 0.9, w), (-l * 0.8, w * 0.9)]
+    P = [(at[0] + x * c - y * s_, at[1] + x * s_ + y * c, 0.6 + rng.uniform(0, 1.5)) for x, y in pts]
+    uvface(m, slot, P, [(0, 0), (1, 0), (1, 1), (0, 1)])
+
+
+def rocks_scatter(seed=51):
+    """Loose stones over ~1.8 m: lots of pebbles and fist-sized stones, a couple of bigger ones."""
+    rng = random.Random(seed)
+    m = Mesh()
+    stones(rng, m, 16, 3, 9, 90)
+    stones(rng, m, 3, 12, 22, 70)
+    return m
+
+
+def rocks_rubble(seed=52):
+    """Builders' rubble: broken concrete and block chunks with stones, ~1.4 m."""
+    rng = random.Random(seed)
+    m = Mesh()
+    for _ in range(9):
+        a, d = rng.uniform(0, 2 * math.pi), 55 * math.sqrt(rng.uniform(0, 1))
+        r = rng.uniform(9, 22)
+        blob(m, rng.choice(["Concrete", "Concrete", "StoneLight"]), (math.cos(a) * d, math.sin(a) * d, r * 0.3), r, rng,
+             squash=rng.uniform(0.5, 0.8), jitter=0.4, tile=40, split=False)
+    stones(rng, m, 10, 3, 8, 75)
+    return m
+
+
+def rocks_litter(seed=53):
+    """Stones with roadside litter: scraps of paper and plastic, ~1.8 m."""
+    rng = random.Random(seed)
+    m = Mesh()
+    stones(rng, m, 11, 3, 10, 85)
+    for _ in range(5):
+        a, d = rng.uniform(0, 2 * math.pi), 80 * math.sqrt(rng.uniform(0, 1))
+        flake(rng, m, rng.choice(["Litter", "Litter", "LitterBlue"]), (math.cos(a) * d, math.sin(a) * d), rng.uniform(6, 14))
+    return m
+
+
 ITEMS = [("SM_Plant_Agave", agave), ("SM_Plant_PricklyPear", prickly_pear), ("SM_Plant_Oleander", oleander),
          ("SM_Plant_Saltbush", saltbush), ("SM_Grass_Tuft", grass_tuft), ("SM_Grass_Seed", grass_seed),
-         ("SM_Grass_Dead", grass_dead)]
+         ("SM_Grass_Dead", grass_dead), ("SM_Grass_Tussock", grass_tussock), ("SM_Rocks_Scatter", rocks_scatter),
+         ("SM_Rocks_Rubble", rocks_rubble), ("SM_Rocks_Litter", rocks_litter)]
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)

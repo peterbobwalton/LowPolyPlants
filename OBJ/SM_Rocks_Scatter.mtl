@@ -1,0 +1,21 @@
+newmtl Stone
+Kd 0.4366 0.3959 0.3492
+Ks 0 0 0
+d 1
+illum 1
+map_Kd T_Stone_Surface.png
+
+newmtl StoneLight
+Kd 0.5271 0.4845 0.4236
+Ks 0 0 0
+d 1
+illum 1
+map_Kd T_Stone_Surface.png
+
+newmtl StoneDark
+Kd 0.3318 0.3035 0.2717
+Ks 0 0 0
+d 1
+illum 1
+map_Kd T_Stone_Surface.png
+

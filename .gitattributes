@@ -1,0 +1,8 @@
+*.uasset binary
+*.umap binary
+*.fbx binary
+*.png binary
+*.obj text eol=lf
+*.mtl text eol=lf
+*.py text eol=lf
+*.md text eol=lf

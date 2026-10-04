@@ -1,0 +1,14 @@
+newmtl Straw
+Kd 0.4845 0.4366 0.2717
+Ks 0 0 0
+d 1
+illum 1
+map_Kd T_PlantLeaf_Surface.png
+
+newmtl DeadGrass
+Kd 0.3811 0.2934 0.1897
+Ks 0 0 0
+d 1
+illum 1
+map_Kd T_PlantLeaf_Surface.png
+

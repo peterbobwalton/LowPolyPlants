@@ -19,9 +19,28 @@ stone) with surface variation and defects.
 | SM_Rocks_Scatter | loose stones and pebbles | ~1.8 m across | 488 |
 | SM_Rocks_Rubble | broken concrete and block chunks with stones | ~1.4 m across | 272 |
 | SM_Rocks_Litter | stones with scraps of paper and plastic | ~1.8 m across | 242 |
+| SM_Plant_DatePalm_A | date palm (Phoenix dactylifera): curved bark trunk, 28 V-leaflet fronds, dry skirt | ~9 m tall | 1,140 |
+| SM_Plant_DatePalm_B | date palm, 26 fronds, dry skirt | ~6.5 m tall | 1,022 |
+| SM_Plant_DatePalm_C | young date palm, 16 fronds | ~3.2 m tall | 468 |
 
 Z up, centimetres, pivot on the ground. No collision. Each grass mesh is a clump of several tufts, so a few
 instances cover a patch of ground. In the Unreal pack every mesh has 3 LODs (100 / 45 / 15 %).
+
+## Date palms
+
+![date palms](datepalm_preview.png)
+
+`SM_Plant_DatePalm_A/B/C` are leaf-card palms, unlike the flat-colour plants above. Each frond is a rib in 6 segments with a
+card either side rising 25 deg (a V of leaflets that reads from any angle), textured with `T_PalmFrond.png`: a 2048 px RGBA
+atlas of 4 fronds (2 grey-green, 1 yellow-green, 1 dry brown), narrow leaflets angled towards the tip, **alpha = leaf
+coverage**. Upper fronds arch up and out, lower ones droop; A and B carry a skirt of dry fronds under the crown.
+
+- Slots: `Trunk` (bark colours in the vertex colours; Kd in the OBJ) and `Frond` (the atlas). Render `Frond` **masked**
+  (opacity mask = texture alpha) and **two-sided**. In Unreal: a masked, two-sided material, texture RGB to Base Color,
+  A to Opacity Mask; Nanite works with it in 5.8. Add a box around the trunk if you want collision.
+- Regenerate: `python gen_datepalm_tex.py` (Pillow) then `blender --background --python gen_datepalm_blender.py`.
+  Height, frond count, frond length and droop per variant are in `VARIANTS` at the top of the script.
+- Not in the Unreal pack yet (`Unreal/Content/LowPolyPlants`); import the FBXs.
 
 ## Unreal (5.8)
 
